@@ -87,8 +87,8 @@ def extract_text(file):
 
 def extract_name(text):
     # Sehr einfache Extraktion: Suche nach "Vorname Nachname"
-    lines = text.split("
-")
+    lines = text.split("\n")
+
     for line in lines:
         parts = line.strip().split()
         if len(parts) >= 2:
