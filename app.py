@@ -74,7 +74,7 @@ schema = {
     'Gefährungsbeurteilung': 'Gefährdungsbeurteilung_BV_{TT.MM.JJJJ}_{Nachname}, {Vorname}', 
     'Pass': 'Pass_gültig_bis_{TT.MM.JJJJ}_{Nachname}, {Vorname}', 
     'Aufenthaltserlaubnis': 'Aufenthaltserlaubnis_bis_{TT.MM.JJJJ}_Erwerbstätigkeit_gestattet_{Nachname}, {Vorname}', 
-    'Zusatzblatt': 'Zusatzblatt_Erwerbstätigkeit_gestattet_{Nachname}, {Vorname}'}
+    'Zusatzblatt': 'Zusatzblatt_Erwerbstätigkeit_gestattet_{Nachname}, {Vorname}'
     # Weitere Einträge können ergänzt werden
 }
 
