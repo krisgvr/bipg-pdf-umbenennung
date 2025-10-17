@@ -5,7 +5,6 @@ from PIL import Image
 import io
 import zipfile
 import re
-import tempfile
 import pandas as pd
 
 # -----------------------------
@@ -33,7 +32,6 @@ SCHEMA = {
     "Pass": "Pass_gültig_bis_{TT.MM.JJJJ}_{Nachname}, {Vorname}",
     "Aufenthaltserlaubnis": "Aufenthaltserlaubnis_bis_{TT.MM.JJJJ}_{Nachname}, {Vorname}",
     "Lebenslauf": "Lebenslauf_{Nachname}, {Vorname}",
-    # ... (du kannst hier beliebig erweitern)
 }
 
 # -----------------------------
@@ -46,17 +44,19 @@ def extract_text_from_pdf(pdf_bytes):
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         for page in doc:
             text_page = page.get_text("text")
-            if not text_page.strip():  # kein Text → OCR
-                pix = page.get_pixmap(dpi=200)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                text += pytesseract.image_to_string(img, lang="deu")
+            if not text_page.strip():
+                try:
+                    pix = page.get_pixmap(dpi=200)
+                    img = Image.open(io.BytesIO(pix.tobytes("png")))
+                    text += pytesseract.image_to_string(img, lang="deu")
+                except pytesseract.TesseractNotFoundError:
+                    st.warning("⚠️ Tesseract OCR ist nicht installiert. OCR wurde übersprungen.")
             else:
                 text += text_page
     return text
 
 
 def detect_document_type(text):
-    """Erkennt die Dokumentart anhand von Schlüsselwörtern."""
     text_lower = text.lower()
     for key in SCHEMA.keys():
         if key.lower().replace(" ", "") in text_lower.replace(" ", ""):
@@ -65,15 +65,13 @@ def detect_document_type(text):
 
 
 def extract_name(text):
-    """Versucht, den Namen zu finden."""
     match = re.search(r"(Herr|Frau)\s+([A-ZÄÖÜ][a-zäöüß]+)\s+([A-ZÄÖÜ][a-zäöüß\-]+)", text)
     if match:
-        return match.group(3), match.group(2)  # Nachname, Vorname
+        return match.group(3), match.group(2)
     return None, None
 
 
 def extract_date(text):
-    """Findet Datumsangaben im Format TT.MM.JJJJ."""
     match = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4})", text)
     if match:
         return match.group(1)
@@ -81,7 +79,6 @@ def extract_date(text):
 
 
 def generate_filename(doc_type, text):
-    """Baut den neuen Dateinamen zusammen."""
     nachname, vorname = extract_name(text)
     datum = extract_date(text)
 
@@ -92,7 +89,6 @@ def generate_filename(doc_type, text):
     if not schema:
         return None
 
-    # Fehlende Werte manuell abfragen
     if not vorname:
         vorname = st.text_input(f"Vorname für {doc_type}:")
     if not nachname:
@@ -133,28 +129,16 @@ if uploaded_files:
         text = extract_text_from_pdf(pdf_bytes)
         doc_type = detect_document_type(text)
 
-st.markdown(f"**Erkannter Typ:** {doc_type}")
-new_name = generate_filename(doc_type, text)
-if new_name:
-    new_name += ".pdf"
-    st.success(f"➡️ Neuer Name: {new_name}")
-    renamed_files.append((new_name, pdf_bytes))
-    st.download_button("📥 Diese Datei herunterladen", data=pdf_bytes, file_name=new_name)
-else:
-    st.error("❌ Keine eindeutige Zuordnung möglich")
+        st.markdown(f"**Erkannter Typ:** {doc_type}")
+        new_name = generate_filename(doc_type, text)
+        if new_name:
+            new_name += ".pdf"
+            st.success(f"➡️ Neuer Name: {new_name}")
+            renamed_files.append((new_name, pdf_bytes))
+            st.download_button("📥 Diese Datei herunterladen", data=pdf_bytes, file_name=new_name)
+        else:
+            st.error("❌ Keine eindeutige Zuordnung möglich")
 
-with col2:
-            st.markdown(f"**Erkannter Typ:** {doc_type}")
-            new_name = generate_filename(doc_type, text)
-            if new_name:
-                new_name += ".pdf"
-                st.success(f"➡️ Neuer Name: {new_name}")
-                renamed_files.append((new_name, pdf_bytes))
-                st.download_button("📥 Diese Datei herunterladen", data=pdf_bytes, file_name=new_name)
-            else:
-                st.error("❌ Keine eindeutige Zuordnung möglich")
-
-    # Gesamtdownload als ZIP
     if renamed_files:
         with io.BytesIO() as zip_buffer:
             with zipfile.ZipFile(zip_buffer, "w") as zipf:
