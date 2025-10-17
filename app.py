@@ -133,13 +133,16 @@ if uploaded_files:
         text = extract_text_from_pdf(pdf_bytes)
         doc_type = detect_document_type(text)
 
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            # Vorschau erste Seite
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            pix = doc[0].get_pixmap(dpi=150)
-            img = Image.open(io.BytesIO(pix.tobytes("png")))
-            st.image(img, caption=f"{file.name}", use_container_width=True)
+st.markdown(f"**Erkannter Typ:** {doc_type}")
+new_name = generate_filename(doc_type, text)
+if new_name:
+    new_name += ".pdf"
+    st.success(f"➡️ Neuer Name: {new_name}")
+    renamed_files.append((new_name, pdf_bytes))
+    st.download_button("📥 Diese Datei herunterladen", data=pdf_bytes, file_name=new_name)
+else:
+    st.error("❌ Keine eindeutige Zuordnung möglich")
+``
 
         with col2:
             st.markdown(f"**Erkannter Typ:** {doc_type}")
