@@ -3,5 +3,3 @@ PyMuPDF
 pytesseract
 Pillow
 pdf2image
-pandas
-openpyxl
