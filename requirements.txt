@@ -1,4 +1,7 @@
 streamlit
 PyMuPDF
 pytesseract
-pillow
+Pillow
+pdf2image
+pandas
+openpyxl
