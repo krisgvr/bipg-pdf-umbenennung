@@ -143,7 +143,7 @@ if new_name:
 else:
     st.error("❌ Keine eindeutige Zuordnung möglich")
 
-        with col2:
+with col2:
             st.markdown(f"**Erkannter Typ:** {doc_type}")
             new_name = generate_filename(doc_type, text)
             if new_name:
