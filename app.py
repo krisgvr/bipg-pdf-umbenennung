@@ -142,7 +142,6 @@ if new_name:
     st.download_button("📥 Diese Datei herunterladen", data=pdf_bytes, file_name=new_name)
 else:
     st.error("❌ Keine eindeutige Zuordnung möglich")
-``
 
         with col2:
             st.markdown(f"**Erkannter Typ:** {doc_type}")
