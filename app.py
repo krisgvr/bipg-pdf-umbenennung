@@ -1,118 +1,90 @@
 import streamlit as st
+import pandas as pd
 import fitz  # PyMuPDF
-import zipfile
-import os
+import pytesseract
+from PIL import Image
+from pdf2image import convert_from_path
 import io
-import re
-from datetime import datetime, timedelta
+import os
 
-# -------------------------------
-# Streamlit UI
-# -------------------------------
-st.set_page_config(page_title="BipG PDF-Umbenennung", layout="centered")
-st.title("📄 BipG PDF-Umbenennung")
-st.write("Lade hier PDF-Dateien hoch, um sie automatisch nach bipG-Schema umzubenennen.")
+# Titel
+st.title("📄 Automatische PDF-Umbenennung (mit OCR)")
+st.write("Dieses Tool liest Text aus PDFs (auch gescannte) und benennt sie anhand deiner Excel-Tabelle automatisch um.")
 
-uploaded_files = st.file_uploader("PDF-Dateien hochladen", type="pdf", accept_multiple_files=True)
+# Datei-Uploads
+excel_file = st.file_uploader("📘 Excel-Tabelle mit Benennungsschema hochladen", type=["xlsx"])
+pdf_files = st.file_uploader("📂 PDF-Dateien hochladen", type=["pdf"], accept_multiple_files=True)
 
-# -------------------------------
-# Benennungsschema
-# -------------------------------
-schema = {
-    'Einfaches Führungszeugnis': 'Führungszeugnis_gültig_bis_{Datum}_{Nachname}, {Vorname}',
-    'Erweitertes Führungszeugnis': 'Führungszeugnis_Erw._gültig_bis_{Datum}_{Nachname}, {Vorname}',
-    'IFSG-Erstbelehrung': '1.IFSG_{Datum}_{Nachname}, {Vorname}',
-    'IFSG-Nachbelehrung': 'IFSG_gültig_bis_{Datum}_{Nachname}, {Vorname}',
-    'Arbeitsvertrag': 'AV_{Datum}_{Nachname}, {Vorname}',
-    'Zertifikat Basiskurs': 'Zertifikat_Basiskurs_{Datum}_{Nachname}, {Vorname}',
-    'Wundexperte': 'Zertifikat_Wundexperte_{Datum}_{Nachname}, {Vorname}',
-    'Praxisanleiter': 'Zertifikat_Praxisanleitung_{Datum}_{Nachname}, {Vorname}',
-    'Arbeitszeugnis bipG': 'Arbeitszeugnis_{Nachname}, {Vorname}',
-    'Arbeitgeberbescheinigung bipG': 'Arbeitgeberbescheinigung_{Nachname}, {Vorname}',
-    'Personalausweis': 'Personalausweis_{Nachname}, {Vorname}',
-    'Pass': 'Pass_gültig_bis_{Datum}_{Nachname}, {Vorname}',
-    'Aufenthaltserlaubnis': 'Aufenthaltserlaubnis_bis_{Datum}_{Nachname}, {Vorname}',
-}
+# --- Funktionen --------------------------------------------------------------
 
-# -------------------------------
-# Hilfsfunktionen
-# -------------------------------
-def extract_text(file):
-    """Liest gesamten Text aus PDF."""
-    doc = fitz.open(stream=file.read(), filetype="pdf")
+def extract_text_from_pdf(pdf_bytes):
+    """Extrahiert Text aus PDFs (erst normal, dann OCR-Fallback)."""
     text = ""
-    for page in doc:
-        text += page.get_text()
+    try:
+        # 1️⃣ Versuch: normalen Text auslesen
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            for page in doc:
+                text += page.get_text("text")
+    except Exception as e:
+        st.warning(f"Fehler beim Lesen: {e}")
+
+    # 2️⃣ Fallback: OCR, falls kein echter Text gefunden wurde
+    if not text.strip():
+        images = convert_from_path(io.BytesIO(pdf_bytes))
+        ocr_text = ""
+        for image in images:
+            ocr_text += pytesseract.image_to_string(image, lang="deu")
+        text = ocr_text
+
     return text
 
-def extract_name(text):
-    """Sucht nach 'Frau/Herr Vorname Nachname'."""
-    match = re.search(r"(Frau|Herr)\s+([A-ZÄÖÜ][a-zäöüß]+)\s+([A-ZÄÖÜ][a-zäöüß\-]+)", text)
-    if match:
-        vorname = match.group(2)
-        nachname = match.group(3)
-        return nachname, vorname
-    return "Unbekannt", "Unbekannt"
 
-def extract_date(text):
-    """Sucht Datum im Format TT.MM.JJJJ."""
-    match = re.search(r"(\d{2}\.\d{2}\.\d{4})", text)
-    if match:
-        try:
-            return datetime.strptime(match.group(1), "%d.%m.%Y")
-        except:
-            return None
+def find_best_match(text, df):
+    """Findet den besten passenden Namen oder Begriff im PDF-Text."""
+    for _, row in df.iterrows():
+        name = str(row.get("Name", "")).strip()
+        dokumenttyp = str(row.get("Dokumenttyp", "")).strip()
+
+        if name.lower() in text.lower() or dokumenttyp.lower() in text.lower():
+            return row
     return None
 
-def detect_doc_type(text):
-    """Versucht, das Dokument anhand von Stichwörtern zu identifizieren."""
-    for key in schema:
-        if key.lower() in text.lower():
-            return key
-    return "Unbekannt"
 
-def generate_filename(text):
-    """Erstellt den neuen Dateinamen gemäß Schema."""
-    nachname, vorname = extract_name(text)
-    ausstellungsdatum = extract_date(text)
-    dok_typ = detect_doc_type(text)
+# --- Hauptlogik --------------------------------------------------------------
 
-    # Datum berechnen (z. B. „gültig bis“ für Führungszeugnis / IFSG)
-    if dok_typ in ["Einfaches Führungszeugnis", "Erweitertes Führungszeugnis", "IFSG-Nachbelehrung", "IFSG-Erstbelehrung"]:
-        if ausstellungsdatum:
-            gültig_bis = ausstellungsdatum + timedelta(days=730 - 1)
-            datum_str = gültig_bis.strftime("%d.%m.%Y")
-        else:
-            datum_str = "Datum_fehlt"
-    elif ausstellungsdatum:
-        datum_str = ausstellungsdatum.strftime("%d.%m.%Y")
+if excel_file and pdf_files:
+    df = pd.read_excel(excel_file)
+
+    # Spalten prüfen
+    if not {"Name", "Dokumenttyp", "Datum"}.issubset(df.columns):
+        st.error("⚠️ Deine Excel-Datei muss die Spalten **Name**, **Dokumenttyp** und **Datum** enthalten.")
     else:
-        datum_str = "Datum_fehlt"
+        renamed_files = []
 
-    if dok_typ in schema:
-        return schema[dok_typ].format(
-            Vorname=vorname,
-            Nachname=nachname,
-            Datum=datum_str
-        )
-    else:
-        return f"UNBEKANNT_{nachname}, {vorname}"
+        for pdf in pdf_files:
+            pdf_bytes = pdf.read()
+            text = extract_text_from_pdf(pdf_bytes)
 
-# -------------------------------
-# Verarbeitung der Dateien
-# -------------------------------
-if uploaded_files:
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-        for file in uploaded_files:
-            text = extract_text(file)
-            new_name = generate_filename(text) + ".pdf"
-            zip_file.writestr(new_name, file.getvalue())
+            match = find_best_match(text, df)
 
-    st.success("✅ Dateien wurden erfolgreich umbenannt.")
-    st.download_button(
-        "📦 ZIP-Datei herunterladen",
-        data=zip_buffer.getvalue(),
-        file_name="umbenannt.zip",
-        mime="application/zip"
-    )
+            if match is not None:
+                name = match["Name"]
+                dokumenttyp = match["Dokumenttyp"]
+                datum = str(match["Datum"]).split(" ")[0]
+                new_name = f"{name}_{dokumenttyp}_{datum}.pdf"
+            else:
+                new_name = f"unbekannt_{pdf.name}"
+
+            renamed_files.append((pdf.name, new_name))
+
+        # Ergebnis anzeigen
+        st.subheader("🔄 Ergebnis:")
+        result_df = pd.DataFrame(renamed_files, columns=["Originalname", "Neuer Name"])
+        st.dataframe(result_df)
+
+        # Download anbieten
+        for original, new in renamed_files:
+            st.download_button(label=f"⬇️ {new} herunterladen", data=pdf_bytes, file_name=new, mime="application/pdf")
+
+else:
+    st.info("Bitte lade zuerst eine Excel-Datei und mindestens eine PDF-Datei hoch.")
